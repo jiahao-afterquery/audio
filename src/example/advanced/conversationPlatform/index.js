@@ -1170,14 +1170,27 @@ function handleUserJoined(user) {
         updateConversationStatus("New user joined! You can request a conversation.");
     }
     
-    // Force reload shared conversations when new user joins
+    // Immediate cross-device conversation check
     setTimeout(() => {
-        console.log("Forcing conversation reload after user join");
+        console.log("Immediate conversation check for new user:", user.uid);
+        
+        // Check if this user is in a conversation with us
+        const newUser = platformUsers.get(user.uid);
+        if (newUser && newUser.status === "in-conversation" && newUser.conversationPartner === options.uid) {
+            console.log(`New user ${user.uid} is already in conversation with us`);
+            checkCrossDeviceConversation(user.uid);
+        }
+        
+        // Check if we should be in a conversation with this user
+        checkForConversationWithUser(user.uid);
+        
+        // Force conversation reload
         checkForConversationUpdates();
-    }, 500);
+    }, 200);
     
-    // Check if this user should be in a conversation with us
+    // Additional check after a longer delay
     setTimeout(() => {
+        console.log("Secondary conversation check for new user:", user.uid);
         checkForConversationWithUser(user.uid);
     }, 1000);
     
@@ -1185,7 +1198,7 @@ function handleUserJoined(user) {
     if (isInConversation && currentConversationPartner) {
         setTimeout(() => {
             broadcastConversationStatus(user.uid);
-        }, 2000);
+        }, 1500);
     }
 }
 
@@ -1256,71 +1269,9 @@ function handleChannelMessage(message) {
 
 // Handle messages from localStorage
 function handleLocalStorageMessages() {
-    try {
-        const storedMessages = JSON.parse(localStorage.getItem('channelMessages') || '[]');
-        const currentTime = Date.now();
-        const processedMessages = new Set();
-        
-        // Get previously processed messages
-        const processedMessageIds = JSON.parse(sessionStorage.getItem('processedMessageIds') || '[]');
-        
-        for (let message of storedMessages) {
-            // Skip if we've already processed this message
-            if (processedMessageIds.includes(message.messageId)) {
-                continue;
-            }
-            
-            // Skip if message is too old (older than 30 seconds)
-            if (currentTime - message.timestamp > 30000) {
-                continue;
-            }
-            
-            // Skip our own messages
-            if (message.sender === options.uid) {
-                continue;
-            }
-            
-            console.log("Processing localStorage message:", message);
-            
-            switch (message.type) {
-                case 'test':
-                    console.log("Received test message from User", message.sender, ":", message.message);
-                    break;
-                case 'conversation_start':
-                    console.log("Handling conversation start message");
-                    handleConversationStartMessage(message);
-                    break;
-                case 'conversation_end':
-                    console.log("Handling conversation end message");
-                    handleConversationEndMessage(message);
-                    break;
-                            case 'user_status':
-                console.log("Handling user status message");
-                handleUserStatusMessage(message);
-                break;
-            case 'force_conversation_check':
-                console.log("Handling force conversation check message");
-                handleForceConversationCheckMessage(message);
-                break;
-            default:
-                console.log("Unknown message type:", message.type);
-            }
-            
-            // Mark as processed
-            processedMessages.add(message.messageId);
-        }
-        
-        // Update processed message IDs
-        const newProcessedIds = [...processedMessageIds, ...Array.from(processedMessages)];
-        // Keep only recent processed IDs (last 50)
-        if (newProcessedIds.length > 50) {
-            newProcessedIds.splice(0, newProcessedIds.length - 50);
-        }
-        sessionStorage.setItem('processedMessageIds', JSON.stringify(newProcessedIds));
-        
-    } catch (error) {
-        console.error("Error handling localStorage messages:", error);
-    }
+    // This function is now deprecated since localStorage doesn't work across different machines
+    // The cross-device communication is now handled by the user status system
+    console.log("Cross-device communication now handled by user status system");
 }
 
 function checkForConversationWithUser(targetUid) {
@@ -1707,42 +1658,39 @@ function generateUniqueUID() {
     return timestamp + random;
 }
 
-// Cross-device communication using localStorage and polling
-// Since Agora Web SDK 4.x doesn't have built-in messaging, we'll use a different approach
+// Cross-device communication using user status and aggressive polling
+// Since localStorage doesn't work across different machines, we'll use a different approach
 async function sendChannelMessage(messageData) {
     try {
-        console.log("Sending message via localStorage:", messageData);
+        console.log("Sending message via user status system:", messageData);
         
-        // Store message in localStorage with a unique ID
-        const messageId = 'msg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-        const messageWithId = {
-            ...messageData,
-            messageId: messageId,
-            sender: options.uid,
-            timestamp: Date.now()
-        };
+        // For cross-device communication, we'll use the user status system
+        // This works because all users in the same Agora channel can see each other's status
         
-        // Store in localStorage
-        const storedMessages = JSON.parse(localStorage.getItem('channelMessages') || '[]');
-        storedMessages.push(messageWithId);
-        
-        // Keep only recent messages (last 100)
-        if (storedMessages.length > 100) {
-            storedMessages.splice(0, storedMessages.length - 100);
+        if (messageData.type === 'conversation_start') {
+            // Update our own status to indicate we're in a conversation
+            const targetUid = messageData.target;
+            await setUserStatus(options.uid, "in-conversation");
+            
+            // Also update the target user's status in our local map
+            const targetUser = platformUsers.get(targetUid);
+            if (targetUser) {
+                targetUser.status = "in-conversation";
+                targetUser.conversationPartner = options.uid;
+                targetUser.timestamp = Date.now();
+                console.log(`Updated local status for User ${targetUid} to in-conversation`);
+            }
+            
+        } else if (messageData.type === 'conversation_end') {
+            // Update our own status to available
+            await setUserStatus(options.uid, "available");
+            
+        } else if (messageData.type === 'user_status') {
+            // This is handled by the user status system
+            console.log("User status message sent via status system");
         }
         
-        localStorage.setItem('channelMessages', JSON.stringify(storedMessages));
-        
-        // Trigger storage event for immediate notification
-        const event = new StorageEvent('storage', {
-            key: 'channelMessages',
-            newValue: localStorage.getItem('channelMessages'),
-            oldValue: null,
-            storageArea: localStorage
-        });
-        window.dispatchEvent(event);
-        
-        console.log("Successfully sent message via localStorage:", messageData);
+        console.log("Successfully sent message via user status system:", messageData);
     } catch (error) {
         console.error("Failed to send message:", error);
         console.error("Error details:", error.message);
@@ -2177,26 +2125,39 @@ setInterval(() => {
     if (isConnected) {
         checkForConversationUpdates();
         checkForUserStatusUpdates();
-        handleLocalStorageMessages(); // Check for new messages
         
-        // Also check for conversations with all users periodically
+        // Aggressive cross-device conversation detection
         for (let [uid, user] of platformUsers.entries()) {
-            if (uid !== options.uid && !isInConversation) {
-                checkForConversationWithUser(uid);
+            if (uid !== options.uid) {
+                // Check if this user is in a conversation with us
+                if (user.status === "in-conversation" && user.conversationPartner === options.uid && !isInConversation) {
+                    console.log(`Cross-device detection: User ${uid} is in conversation with us`);
+                    checkCrossDeviceConversation(uid);
+                }
+                
+                // Check if we should be in a conversation with this user
+                if (!isInConversation) {
+                    checkForConversationWithUser(uid);
+                }
             }
         }
         
-        // Cross-device conversation check - more aggressive
+        // Force conversation check for all users every few seconds
         if (!isInConversation) {
             for (let [uid, user] of platformUsers.entries()) {
-                if (uid !== options.uid && user.status === "in-conversation" && user.conversationPartner === options.uid) {
-                    console.log(`Cross-device check: User ${uid} is in conversation with us`);
-                    checkCrossDeviceConversation(uid);
+                if (uid !== options.uid) {
+                    // Check if this user is trying to talk to us
+                    if (user.status === "in-conversation" && user.conversationPartner === options.uid) {
+                        console.log(`Force check: User ${uid} is trying to talk to us`);
+                        setTimeout(() => {
+                            checkCrossDeviceConversation(uid);
+                        }, 100);
+                    }
                 }
             }
         }
     }
-}, 1000); // Check every second
+}, 500); // Check every 500ms for more responsive cross-device communication
 
 // Debug: Log shared conversations every 5 seconds
 setInterval(() => {

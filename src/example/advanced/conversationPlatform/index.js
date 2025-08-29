@@ -15,6 +15,7 @@ let conversationStartTime = null;
 let mediaRecorder = null;
 let recordedChunks = [];
 let conversationId = null;
+let currentConversationId = null;
 
 // User management
 let platformUsers = new Map(); // uid -> user object
@@ -636,6 +637,8 @@ function startConversation(user1Uid, user2Uid) {
     const conversationId = generateConversationId();
     const startTime = Date.now();
     
+    console.log(`Starting conversation ${conversationId} between User ${user1Uid} and User ${user2Uid}`);
+    
     // Update user statuses
     setUserStatus(user1Uid, "in-conversation");
     setUserStatus(user2Uid, "in-conversation");
@@ -657,6 +660,7 @@ function startConversation(user1Uid, user2Uid) {
     
     // Start recording for current user
     if (user1Uid === options.uid || user2Uid === options.uid) {
+        currentConversationId = conversationId; // Store the conversation ID
         startConversationRecording(conversationId);
         currentConversationPartner = user1Uid === options.uid ? user2Uid : user1Uid;
         isInConversation = true;
@@ -738,6 +742,7 @@ function endConversation() {
     isInConversation = false;
     currentConversationPartner = null;
     conversationStartTime = null;
+    currentConversationId = null;
     
     // Remove from active conversations
     for (let [convId, conv] of activeConversations.entries()) {
@@ -1168,6 +1173,13 @@ function checkForUserStatusUpdates() {
         
         processedUsers.add(uid);
         
+        // Check if this user is in a conversation with us
+        if (userStatus.status === "in-conversation" && userStatus.conversationPartner === options.uid) {
+            console.log(`User ${uid} is in conversation with us, checking for conversation sync`);
+            // Force a conversation check to ensure we're using the same conversation ID
+            setTimeout(() => checkForConversationUpdates(), 100);
+        }
+        
         const localUser = platformUsers.get(uid);
         if (localUser) {
             // Update local user status if it's different
@@ -1261,10 +1273,13 @@ function checkForConversationUpdates() {
             // This user should be in this conversation (started by someone else)
             const partnerUid = conversation.user1 === options.uid ? conversation.user2 : conversation.user1;
             
+            console.log(`Joining existing conversation ${conversationId} with User ${partnerUid}`);
+            
             // Update local state
             currentConversationPartner = partnerUid;
             isInConversation = true;
             conversationStartTime = conversation.startTime;
+            currentConversationId = conversationId; // Store the conversation ID
             
             // Update user status
             setUserStatus(options.uid, "in-conversation");
@@ -1272,8 +1287,16 @@ function checkForConversationUpdates() {
                 platformUsers.get(options.uid).conversationPartner = partnerUid;
             }
             
-            // Start recording
-            startConversationRecording(conversationId);
+            // Verify conversation sync before starting recording
+            if (verifyConversationSync(conversationId, partnerUid)) {
+                // Start recording with the SAME conversation ID
+                console.log(`Starting recording with conversation ID: ${conversationId}`);
+                startConversationRecording(conversationId);
+            } else {
+                console.error(`Failed to verify conversation sync for ${conversationId}`);
+                message.error("Failed to join conversation. Please try again.");
+                return;
+            }
             
             // Update UI
             updateConversationStatus(`In conversation with User ${partnerUid}`);
@@ -1289,6 +1312,15 @@ function checkForConversationUpdates() {
             
             // Mark as processed
             conversation.status = 'processed';
+            
+            // Update localStorage to reflect the processed status
+            try {
+                const storedConversations = JSON.parse(localStorage.getItem('sharedConversations') || '{}');
+                storedConversations[conversationId] = conversation;
+                localStorage.setItem('sharedConversations', JSON.stringify(storedConversations));
+            } catch (error) {
+                console.warn("Failed to update conversation status in localStorage:", error);
+            }
         }
     }
     
@@ -1366,6 +1398,24 @@ function notifyConversationEnded(targetUid, fromUid) {
             break;
         }
     }
+}
+
+function verifyConversationSync(conversationId, partnerUid) {
+    // Verify that both users are using the same conversation ID
+    if (!window.sharedConversations || !window.sharedConversations.has(conversationId)) {
+        console.warn(`Conversation ${conversationId} not found in shared conversations`);
+        return false;
+    }
+    
+    const conversation = window.sharedConversations.get(conversationId);
+    if (conversation.user1 !== Math.min(options.uid, partnerUid) || 
+        conversation.user2 !== Math.max(options.uid, partnerUid)) {
+        console.warn(`Conversation ${conversationId} user mismatch`);
+        return false;
+    }
+    
+    console.log(`Conversation ${conversationId} verified for users ${options.uid} and ${partnerUid}`);
+    return true;
 }
 
 

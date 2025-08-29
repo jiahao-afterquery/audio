@@ -62,7 +62,12 @@ function __checkLocalOptions() {
     }
     if (!options.appid) {
       alert("Need to set up appID and appCertificate!");
-      window.location.href = SETUP_PAGE_URL;
+      // For GitHub Pages, use the correct setup URL
+      if (window.location.hostname.includes('github.io')) {
+        window.location.href = '/audio/setup.html';
+      } else {
+        window.location.href = SETUP_PAGE_URL;
+      }
     }
   }
 }
@@ -109,10 +114,16 @@ function __addAppInfoUI() {
         "https://docs.agora.io/en/video-calling/get-started/get-started-sdk?platform=web";
     }
   }
+  // Determine the correct setup URL
+  let setupUrl = SETUP_PAGE_URL;
+  if (window.location.hostname.includes('github.io')) {
+    setupUrl = '/audio/setup.html';
+  }
+  
   var $newElement = $(`<div class="pt-3" style="color:#54667a; font-size:14px;">
     <div>AppID: ${appid}</div> 
     <div>AppCertificate: ${certificate}</div> 
-    <a class="d-inline-block text-decoration-none btn-jump-setup i18n" href=${SETUP_PAGE_URL} name="clickChange">Click to change</a> 
+    <a class="d-inline-block text-decoration-none btn-jump-setup i18n" href=${setupUrl} name="clickChange">Click to change</a> 
     <div class="d-md-flex align-items-center gap-1">
       <span class="i18n" name="needHelp">If you need help, please visit the official website</span>
       <a class="text-decoration-none i18n" href=${documentUrl} name="agoraDocs" target="__blank">Agora Docs</a> 

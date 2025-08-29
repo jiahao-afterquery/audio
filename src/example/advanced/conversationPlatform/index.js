@@ -58,7 +58,11 @@ $(document).ready(function() {
     
     // Listen for storage changes from other tabs
     window.addEventListener('storage', function(e) {
-        if (e.key === 'sharedConversations' && isConnected) {
+        if (e.key === 'channelMessages' && isConnected) {
+            console.log("Channel messages storage changed, processing messages");
+            // Process new messages immediately
+            handleLocalStorageMessages();
+        } else if (e.key === 'sharedConversations' && isConnected) {
             console.log("Storage changed, checking for conversation updates");
             // Reload shared conversations from localStorage
             try {
@@ -461,7 +465,6 @@ function setupClientEventHandlers() {
     client.on("user-joined", handleUserJoined);
     client.on("user-left", handleUserLeft);
     client.on("connection-state-change", handleConnectionStateChange);
-    client.on("message", handleChannelMessage);
 }
 
 async function createAndPublishAudioTrack() {
@@ -1099,6 +1102,71 @@ function handleChannelMessage(message) {
     }
 }
 
+// Handle messages from localStorage
+function handleLocalStorageMessages() {
+    try {
+        const storedMessages = JSON.parse(localStorage.getItem('channelMessages') || '[]');
+        const currentTime = Date.now();
+        const processedMessages = new Set();
+        
+        // Get previously processed messages
+        const processedMessageIds = JSON.parse(sessionStorage.getItem('processedMessageIds') || '[]');
+        
+        for (let message of storedMessages) {
+            // Skip if we've already processed this message
+            if (processedMessageIds.includes(message.messageId)) {
+                continue;
+            }
+            
+            // Skip if message is too old (older than 30 seconds)
+            if (currentTime - message.timestamp > 30000) {
+                continue;
+            }
+            
+            // Skip our own messages
+            if (message.sender === options.uid) {
+                continue;
+            }
+            
+            console.log("Processing localStorage message:", message);
+            
+            switch (message.type) {
+                case 'test':
+                    console.log("Received test message from User", message.sender, ":", message.message);
+                    break;
+                case 'conversation_start':
+                    console.log("Handling conversation start message");
+                    handleConversationStartMessage(message);
+                    break;
+                case 'conversation_end':
+                    console.log("Handling conversation end message");
+                    handleConversationEndMessage(message);
+                    break;
+                case 'user_status':
+                    console.log("Handling user status message");
+                    handleUserStatusMessage(message);
+                    break;
+                default:
+                    console.log("Unknown message type:", message.type);
+            }
+            
+            // Mark as processed
+            processedMessages.add(message.messageId);
+        }
+        
+        // Update processed message IDs
+        const newProcessedIds = [...processedMessageIds, ...Array.from(processedMessages)];
+        // Keep only recent processed IDs (last 50)
+        if (newProcessedIds.length > 50) {
+            newProcessedIds.splice(0, newProcessedIds.length - 50);
+        }
+        sessionStorage.setItem('processedMessageIds', JSON.stringify(newProcessedIds));
+        
+    } catch (error) {
+        console.error("Error handling localStorage messages:", error);
+    }
+}
+
 function handleConversationStartMessage(data) {
     const { conversationId, user1, user2, startTime, initiator } = data;
     
@@ -1268,39 +1336,44 @@ function generateUniqueUID() {
     return timestamp + random;
 }
 
-// Cross-device communication using Agora channel messaging
+// Cross-device communication using localStorage and polling
+// Since Agora Web SDK 4.x doesn't have built-in messaging, we'll use a different approach
 async function sendChannelMessage(messageData) {
     try {
-        if (client && isConnected) {
-            const message = JSON.stringify(messageData);
-            console.log("Sending channel message:", messageData);
-            console.log("Message JSON:", message);
-            console.log("Client state:", client.connectionState);
-            console.log("Is connected:", isConnected);
-            
-            // Try different methods for sending messages
-            try {
-                await client.sendMessageToAll(message);
-            } catch (sendError) {
-                console.log("sendMessageToAll failed, trying alternative method:", sendError);
-                // Alternative method - send to specific users
-                const remoteUsers = client.remoteUsers;
-                for (let remoteUser of remoteUsers) {
-                    try {
-                        await client.sendMessageToPeer(message, remoteUser.uid);
-                    } catch (peerError) {
-                        console.error("Failed to send to peer", remoteUser.uid, ":", peerError);
-                    }
-                }
-            }
-            console.log("Successfully sent channel message:", messageData);
-        } else {
-            console.error("Cannot send message - client not ready or not connected");
-            console.log("Client:", client);
-            console.log("Is connected:", isConnected);
+        console.log("Sending message via localStorage:", messageData);
+        
+        // Store message in localStorage with a unique ID
+        const messageId = 'msg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+        const messageWithId = {
+            ...messageData,
+            messageId: messageId,
+            sender: options.uid,
+            timestamp: Date.now()
+        };
+        
+        // Store in localStorage
+        const storedMessages = JSON.parse(localStorage.getItem('channelMessages') || '[]');
+        storedMessages.push(messageWithId);
+        
+        // Keep only recent messages (last 100)
+        if (storedMessages.length > 100) {
+            storedMessages.splice(0, storedMessages.length - 100);
         }
+        
+        localStorage.setItem('channelMessages', JSON.stringify(storedMessages));
+        
+        // Trigger storage event for immediate notification
+        const event = new StorageEvent('storage', {
+            key: 'channelMessages',
+            newValue: localStorage.getItem('channelMessages'),
+            oldValue: null,
+            storageArea: localStorage
+        });
+        window.dispatchEvent(event);
+        
+        console.log("Successfully sent message via localStorage:", messageData);
     } catch (error) {
-        console.error("Failed to send channel message:", error);
+        console.error("Failed to send message:", error);
         console.error("Error details:", error.message);
     }
 }
@@ -1717,6 +1790,7 @@ setInterval(() => {
     if (isConnected) {
         checkForConversationUpdates();
         checkForUserStatusUpdates();
+        handleLocalStorageMessages(); // Check for new messages
     }
 }, 500); // Check more frequently
 

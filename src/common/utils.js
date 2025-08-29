@@ -239,7 +239,20 @@ function setOptionsToLocal(option) {
 }
 
 function getOptionsFromLocal() {
-  return JSON.parse(localStorage.getItem("__options")) || {};
+  const options = JSON.parse(localStorage.getItem("__options")) || {};
+  
+  // Check for simplified localStorage keys (from setup.html)
+  const simpleAppId = localStorage.getItem("agora_appid");
+  const simpleCertificate = localStorage.getItem("agora_certificate");
+  
+  if (simpleAppId && !options.appid) {
+    options.appid = simpleAppId;
+  }
+  if (simpleCertificate && !options.certificate) {
+    options.certificate = simpleCertificate;
+  }
+  
+  return options;
 }
 
 function getLanguage() {

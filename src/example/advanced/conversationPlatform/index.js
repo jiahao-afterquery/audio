@@ -607,10 +607,13 @@ function updateUserList() {
                     <strong>User ${uid}</strong>
                     <br>
                     <small class="text-muted">${getStatusText(user.status)}</small>
+                    ${user.conversationPartner ? `<br><small class="text-info">Talking with User ${user.conversationPartner}</small>` : ''}
                 </div>
                 <div>
-                    ${user.status === "available" && uid !== options.uid ? 
+                    ${user.status === "available" && uid !== options.uid && !isInConversation ? 
                         `<button class="btn btn-sm btn-primary" onclick="requestConversation(${uid})">Talk</button>` : 
+                        user.status === "in-conversation" && user.conversationPartner === options.uid ?
+                        `<span class="badge bg-success">In conversation with you</span>` :
                         `<span class="badge bg-secondary">${user.status}</span>`
                     }
                 </div>
@@ -710,7 +713,7 @@ function startConversation(user1Uid, user2Uid) {
     
     console.log(`Starting conversation ${conversationId} between User ${user1Uid} and User ${user2Uid}`);
     
-    // Update user statuses
+    // Update user statuses for both users immediately
     setUserStatus(user1Uid, "in-conversation").catch(error => {
         console.error("Failed to set user status:", error);
     });
@@ -718,7 +721,7 @@ function startConversation(user1Uid, user2Uid) {
         console.error("Failed to set user status:", error);
     });
     
-    // Set conversation partners
+    // Set conversation partners for both users immediately
     platformUsers.get(user1Uid).conversationPartner = user2Uid;
     platformUsers.get(user2Uid).conversationPartner = user1Uid;
     
@@ -744,6 +747,23 @@ function startConversation(user1Uid, user2Uid) {
         showConversationControls();
     }
     
+    // Immediately update UI for both users by updating their local user objects
+    // This ensures both users see the conversation status immediately
+    const user1 = platformUsers.get(user1Uid);
+    const user2 = platformUsers.get(user2Uid);
+    
+    if (user1) {
+        user1.status = "in-conversation";
+        user1.conversationPartner = user2Uid;
+        user1.timestamp = Date.now();
+    }
+    
+    if (user2) {
+        user2.status = "in-conversation";
+        user2.conversationPartner = user1Uid;
+        user2.timestamp = Date.now();
+    }
+    
     // Notify other user about conversation start - this will trigger them to join
     notifyConversationStarted(user2Uid, conversationId, startTime).catch(error => {
         console.error("Failed to notify conversation start:", error);
@@ -754,8 +774,14 @@ function startConversation(user1Uid, user2Uid) {
         broadcastConversationStatus(user2Uid);
     }, 500);
     
+    // Force immediate UI update
     updateStats();
     updateUserList();
+    
+    // Force conversation check for the other user
+    setTimeout(() => {
+        forceConversationCheckForUser(user2Uid);
+    }, 1000);
 }
 
 async function setUserStatus(uid, status) {
@@ -1268,12 +1294,16 @@ function handleLocalStorageMessages() {
                     console.log("Handling conversation end message");
                     handleConversationEndMessage(message);
                     break;
-                case 'user_status':
-                    console.log("Handling user status message");
-                    handleUserStatusMessage(message);
-                    break;
-                default:
-                    console.log("Unknown message type:", message.type);
+                            case 'user_status':
+                console.log("Handling user status message");
+                handleUserStatusMessage(message);
+                break;
+            case 'force_conversation_check':
+                console.log("Handling force conversation check message");
+                handleForceConversationCheckMessage(message);
+                break;
+            default:
+                console.log("Unknown message type:", message.type);
             }
             
             // Mark as processed
@@ -1473,6 +1503,25 @@ function broadcastConversationStatus(targetUid) {
     }
 }
 
+function forceConversationCheckForUser(targetUid) {
+    console.log(`Forcing conversation check for User ${targetUid}`);
+    
+    // Send a direct message to force the user to check for conversations
+    sendChannelMessage({
+        type: 'force_conversation_check',
+        targetUid: targetUid,
+        initiatorUid: options.uid,
+        timestamp: Date.now()
+    }).catch(error => {
+        console.error("Failed to send force conversation check message:", error);
+    });
+    
+    // Also trigger a conversation check for this specific user
+    setTimeout(() => {
+        checkForConversationWithUser(targetUid);
+    }, 500);
+}
+
 function handleConversationStartMessage(data) {
     const { conversationId, user1, user2, startTime, initiator } = data;
     
@@ -1622,6 +1671,22 @@ function handleUserStatusMessage(data) {
     
     updateUserList();
     updateStats();
+}
+
+function handleForceConversationCheckMessage(data) {
+    const { targetUid, initiatorUid, timestamp } = data;
+    
+    // Skip if this message is not for us
+    if (targetUid !== options.uid) return;
+    
+    console.log(`Received force conversation check from User ${initiatorUid}`);
+    
+    // Force an immediate conversation check
+    setTimeout(() => {
+        console.log("Forcing conversation check due to received message");
+        checkForConversationUpdates();
+        checkForConversationWithUser(initiatorUid);
+    }, 100);
 }
 
 function generateConversationId() {

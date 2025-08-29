@@ -749,6 +749,11 @@ function startConversation(user1Uid, user2Uid) {
         console.error("Failed to notify conversation start:", error);
     });
     
+    // Immediate cross-device notification
+    setTimeout(() => {
+        broadcastConversationStatus(user2Uid);
+    }, 500);
+    
     updateStats();
     updateUserList();
 }
@@ -1143,6 +1148,13 @@ function handleUserJoined(user) {
     setTimeout(() => {
         checkForConversationWithUser(user.uid);
     }, 1000);
+    
+    // Broadcast our current conversation status to the new user
+    if (isInConversation && currentConversationPartner) {
+        setTimeout(() => {
+            broadcastConversationStatus(user.uid);
+        }, 2000);
+    }
 }
 
 function handleUserLeft(user) {
@@ -1347,7 +1359,7 @@ function checkForConversationWithUser(targetUid) {
                     // Update user status
                     setUserStatus(options.uid, "in-conversation").catch(error => {
                         console.error("Failed to set user status:", error);
-                    });
+                });
                     if (platformUsers.has(options.uid)) {
                         platformUsers.get(options.uid).conversationPartner = partnerUid;
                     }
@@ -1373,6 +1385,85 @@ function checkForConversationWithUser(targetUid) {
         }
     } catch (error) {
         console.error("Error checking localStorage conversations:", error);
+    }
+    
+    // Cross-device conversation detection using user status
+    checkCrossDeviceConversation(targetUid);
+}
+
+function checkCrossDeviceConversation(targetUid) {
+    console.log(`Checking cross-device conversation with User ${targetUid}`);
+    
+    // Check if the target user is in a conversation with us
+    const targetUser = platformUsers.get(targetUid);
+    if (targetUser && targetUser.status === "in-conversation" && targetUser.conversationPartner === options.uid) {
+        console.log(`Found cross-device conversation: User ${targetUid} is in conversation with us`);
+        
+        // Create a conversation ID for this cross-device conversation
+        const conversationId = generateConversationId();
+        
+        // Update local state
+        currentConversationPartner = targetUid;
+        isInConversation = true;
+        conversationStartTime = Date.now();
+        currentConversationId = conversationId;
+        
+        // Update user status
+        setUserStatus(options.uid, "in-conversation").catch(error => {
+            console.error("Failed to set user status:", error);
+        });
+        if (platformUsers.has(options.uid)) {
+            platformUsers.get(options.uid).conversationPartner = targetUid;
+        }
+        
+        // Start recording
+        startConversationRecording(conversationId);
+        
+        // Update UI
+        updateConversationStatus(`In conversation with User ${targetUid}`);
+        showConversationControls();
+        
+        // Create conversation object
+        const conversation = {
+            user1: Math.min(options.uid, targetUid),
+            user2: Math.max(options.uid, targetUid),
+            startTime: conversationStartTime,
+            status: 'active'
+        };
+        
+        // Add to active conversations
+        activeConversations.set(conversationId, conversation);
+        
+        updateStats();
+        updateUserList();
+        
+        message.success(`Cross-device conversation started with User ${targetUid}!`);
+    }
+}
+
+function broadcastConversationStatus(targetUid) {
+    console.log(`Broadcasting conversation status to User ${targetUid}`);
+    
+    // Update our status to indicate we're in a conversation
+    if (isInConversation && currentConversationPartner) {
+        setUserStatus(options.uid, "in-conversation").catch(error => {
+            console.error("Failed to broadcast conversation status:", error);
+        });
+        
+        // Also update the target user's status if they're our partner
+        if (currentConversationPartner === targetUid) {
+            const targetUser = platformUsers.get(targetUid);
+            if (targetUser) {
+                targetUser.status = "in-conversation";
+                targetUser.conversationPartner = options.uid;
+                targetUser.timestamp = Date.now();
+                
+                // Share this status update
+                shareUserStatus(targetUid, "in-conversation", options.uid).catch(error => {
+                    console.error("Failed to share target user status:", error);
+                });
+            }
+        }
     }
 }
 
@@ -2005,6 +2096,16 @@ setInterval(() => {
         for (let [uid, user] of platformUsers.entries()) {
             if (uid !== options.uid && !isInConversation) {
                 checkForConversationWithUser(uid);
+            }
+        }
+        
+        // Cross-device conversation check - more aggressive
+        if (!isInConversation) {
+            for (let [uid, user] of platformUsers.entries()) {
+                if (uid !== options.uid && user.status === "in-conversation" && user.conversationPartner === options.uid) {
+                    console.log(`Cross-device check: User ${uid} is in conversation with us`);
+                    checkCrossDeviceConversation(uid);
+                }
             }
         }
     }

@@ -1144,6 +1144,12 @@ function handleUserJoined(user) {
         updateConversationStatus("New user joined! You can request a conversation.");
     }
     
+    // Force reload shared conversations when new user joins
+    setTimeout(() => {
+        console.log("Forcing conversation reload after user join");
+        checkForConversationUpdates();
+    }, 500);
+    
     // Check if this user should be in a conversation with us
     setTimeout(() => {
         checkForConversationWithUser(user.uid);
@@ -1842,14 +1848,30 @@ function checkForConversationUpdates() {
     // Initialize shared conversations from localStorage if needed
     if (!window.sharedConversations) {
         window.sharedConversations = new Map();
-        try {
-            const storedConversations = JSON.parse(localStorage.getItem('sharedConversations') || '{}');
-            Object.entries(storedConversations).forEach(([id, data]) => {
+    }
+    
+    // Always reload conversations from localStorage for cross-device sync
+    try {
+        const storedConversations = JSON.parse(localStorage.getItem('sharedConversations') || '{}');
+        const currentTime = Date.now();
+        const recentTimeout = 5 * 60 * 1000; // 5 minutes
+        
+        // Clear existing conversations and reload from localStorage
+        window.sharedConversations.clear();
+        
+        Object.entries(storedConversations).forEach(([id, data]) => {
+            // Only load recent conversations
+            if (data.timestamp && (currentTime - data.timestamp) < recentTimeout) {
                 window.sharedConversations.set(id, data);
-            });
-        } catch (error) {
-            console.warn("Failed to load conversations from localStorage:", error);
-        }
+                console.log(`Loaded conversation ${id} from localStorage`);
+            } else {
+                console.log(`Skipping old conversation ${id}, age: ${currentTime - data.timestamp}ms`);
+            }
+        });
+        
+        console.log(`Loaded ${window.sharedConversations.size} conversations from localStorage`);
+    } catch (error) {
+        console.warn("Failed to load conversations from localStorage:", error);
     }
     
     // Clean up old conversations (older than 1 hour)
@@ -2115,6 +2137,11 @@ setInterval(() => {
 setInterval(() => {
     if (isConnected && window.sharedConversations) {
         console.log("Shared conversations:", Array.from(window.sharedConversations.entries()));
+        
+        // Also force a conversation check every 5 seconds for cross-device sync
+        if (!isInConversation) {
+            checkForConversationUpdates();
+        }
     }
 }, 5000);
 

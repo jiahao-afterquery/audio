@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Conversation Platform - Agora Web SDK</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .container {
+            background: white;
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            text-align: center;
+            max-width: 600px;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+        p {
+            color: #666;
+            line-height: 1.6;
+            margin-bottom: 30px;
+        }
+        .btn {
+            display: inline-block;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px 30px;
+            text-decoration: none;
+            border-radius: 50px;
+            font-weight: bold;
+            transition: transform 0.3s ease;
+            margin: 10px;
+        }
+        .btn:hover {
+            transform: translateY(-2px);
+            color: white;
+            text-decoration: none;
+        }
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin: 30px 0;
+        }
+        .feature {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+        }
+        .feature h3 {
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎙️ Conversation Platform</h1>
+        <p>A real-time conversation platform built with Agora Web SDK. Users can join, have conversations, and their voices are automatically recorded separately.</p>
+        
+        <div class="features">
+            <div class="feature">
+                <h3>🔗 Real-time Communication</h3>
+                <p>Powered by Agora Web SDK for high-quality audio conversations</p>
+            </div>
+            <div class="feature">
+                <h3>🎯 Manual Control</h3>
+                <p>Users manually start conversations when ready</p>
+            </div>
+            <div class="feature">
+                <h3>📹 Separate Recordings</h3>
+                <p>Each user's voice is recorded separately for privacy</p>
+            </div>
+            <div class="feature">
+                <h3>☁️ Cloud Storage</h3>
+                <p>Recordings are automatically uploaded to secure server storage</p>
+            </div>
+        </div>
+        
+        <a href="src/example/advanced/conversationPlatform/index.html" class="btn">🚀 Launch Conversation Platform</a>
+        <a href="src/index.html" class="btn">📚 View All Examples</a>
+        
+        <p style="margin-top: 30px; font-size: 0.9em; color: #999;">
+            Built with Agora Web SDK 4.x | 
+            <a href="https://github.com/AgoraIO-Community/AgoraWebSDK-NG" style="color: #667eea;">View on GitHub</a>
+        </p>
+    </div>
+</body>
+</html>

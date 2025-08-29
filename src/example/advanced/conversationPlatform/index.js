@@ -423,6 +423,16 @@ async function connectToPlatform() {
             checkForConversationUpdates();
         }, 1000);
         
+        // Check for conversations with all existing users
+        setTimeout(() => {
+            console.log("Checking for conversations with existing users");
+            for (let [uid, user] of platformUsers.entries()) {
+                if (uid !== options.uid) {
+                    checkForConversationWithUser(uid);
+                }
+            }
+        }, 1500);
+        
         // Send a test message to verify messaging is working
         setTimeout(async () => {
             console.log("Sending test message to verify messaging");
@@ -1039,14 +1049,17 @@ function handleUserJoined(user) {
     console.log("User joined:", user.uid);
     addUserToPlatform(user.uid, "available");
     
-
-    
     // If we're waiting, show available controls instead of auto-matching
     if (platformUsers.get(options.uid)?.status === "waiting") {
         setUserStatus(options.uid, "available");
         showAvailableControls();
         updateConversationStatus("New user joined! You can request a conversation.");
     }
+    
+    // Check if this user should be in a conversation with us
+    setTimeout(() => {
+        checkForConversationWithUser(user.uid);
+    }, 1000);
 }
 
 function handleUserLeft(user) {
@@ -1164,6 +1177,107 @@ function handleLocalStorageMessages() {
         
     } catch (error) {
         console.error("Error handling localStorage messages:", error);
+    }
+}
+
+function checkForConversationWithUser(targetUid) {
+    console.log(`Checking for conversation with User ${targetUid}`);
+    
+    // Check if we have any active conversations that involve this user
+    if (window.sharedConversations) {
+        for (let [conversationId, conversation] of window.sharedConversations.entries()) {
+            if ((conversation.user1 === options.uid && conversation.user2 === targetUid) ||
+                (conversation.user1 === targetUid && conversation.user2 === options.uid)) {
+                
+                if (conversation.status === 'active' && !isInConversation) {
+                    console.log(`Found active conversation ${conversationId} with User ${targetUid}`);
+                    
+                    // Join the conversation
+                    const partnerUid = conversation.user1 === options.uid ? conversation.user2 : conversation.user1;
+                    
+                    // Update local state
+                    currentConversationPartner = partnerUid;
+                    isInConversation = true;
+                    conversationStartTime = conversation.startTime;
+                    currentConversationId = conversationId;
+                    
+                    // Update user status
+                    setUserStatus(options.uid, "in-conversation").catch(error => {
+                        console.error("Failed to set user status:", error);
+                    });
+                    if (platformUsers.has(options.uid)) {
+                        platformUsers.get(options.uid).conversationPartner = partnerUid;
+                    }
+                    
+                    // Start recording
+                    startConversationRecording(conversationId);
+                    
+                    // Update UI
+                    updateConversationStatus(`In conversation with User ${partnerUid}`);
+                    showConversationControls();
+                    
+                    // Add to active conversations
+                    activeConversations.set(conversationId, conversation);
+                    
+                    updateStats();
+                    updateUserList();
+                    
+                    message.success(`Conversation started with User ${partnerUid}!`);
+                    
+                    return;
+                }
+            }
+        }
+    }
+    
+    // Also check localStorage for cross-device conversations
+    try {
+        const storedConversations = JSON.parse(localStorage.getItem('sharedConversations') || '{}');
+        for (let [conversationId, conversation] of Object.entries(storedConversations)) {
+            if ((conversation.user1 === options.uid && conversation.user2 === targetUid) ||
+                (conversation.user1 === targetUid && conversation.user2 === options.uid)) {
+                
+                if (conversation.status === 'active' && !isInConversation) {
+                    console.log(`Found active localStorage conversation ${conversationId} with User ${targetUid}`);
+                    
+                    // Join the conversation
+                    const partnerUid = conversation.user1 === options.uid ? conversation.user2 : conversation.user1;
+                    
+                    // Update local state
+                    currentConversationPartner = partnerUid;
+                    isInConversation = true;
+                    conversationStartTime = conversation.startTime;
+                    currentConversationId = conversationId;
+                    
+                    // Update user status
+                    setUserStatus(options.uid, "in-conversation").catch(error => {
+                        console.error("Failed to set user status:", error);
+                    });
+                    if (platformUsers.has(options.uid)) {
+                        platformUsers.get(options.uid).conversationPartner = partnerUid;
+                    }
+                    
+                    // Start recording
+                    startConversationRecording(conversationId);
+                    
+                    // Update UI
+                    updateConversationStatus(`In conversation with User ${partnerUid}`);
+                    showConversationControls();
+                    
+                    // Add to active conversations
+                    activeConversations.set(conversationId, conversation);
+                    
+                    updateStats();
+                    updateUserList();
+                    
+                    message.success(`Conversation started with User ${partnerUid}!`);
+                    
+                    return;
+                }
+            }
+        }
+    } catch (error) {
+        console.error("Error checking localStorage conversations:", error);
     }
 }
 
@@ -1791,8 +1905,15 @@ setInterval(() => {
         checkForConversationUpdates();
         checkForUserStatusUpdates();
         handleLocalStorageMessages(); // Check for new messages
+        
+        // Also check for conversations with all users periodically
+        for (let [uid, user] of platformUsers.entries()) {
+            if (uid !== options.uid && !isInConversation) {
+                checkForConversationWithUser(uid);
+            }
+        }
     }
-}, 500); // Check more frequently
+}, 1000); // Check every second
 
 // Debug: Log shared conversations every 5 seconds
 setInterval(() => {

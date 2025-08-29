@@ -45,6 +45,14 @@ $(document).ready(function() {
         console.log("Additional cleanup completed after page load");
     }, 1000);
     
+    // Force conversation check after connection
+    setTimeout(() => {
+        if (isConnected) {
+            console.log("Forcing conversation check after connection");
+            checkForConversationUpdates();
+        }
+    }, 2000);
+    
     initializeEventListeners();
     updateStats();
     
@@ -64,6 +72,12 @@ $(document).ready(function() {
             } catch (error) {
                 console.warn("Failed to process storage change:", error);
             }
+        } else if (e.key === 'conversationTrigger' && isConnected) {
+            console.log("Conversation trigger detected, forcing conversation check");
+            // Force immediate conversation check
+            setTimeout(() => {
+                checkForConversationUpdates();
+            }, 50);
         } else if (e.key === 'sharedUserStatuses' && isConnected) {
             console.log("Storage changed, checking for user status updates");
             // Reload shared user statuses from localStorage
@@ -398,6 +412,12 @@ async function connectToPlatform() {
         // Show available controls instead of auto-matching
         showAvailableControls();
         updateConversationStatus("Connected! You can manually request conversations with available users.");
+        
+        // Force conversation check after successful connection
+        setTimeout(() => {
+            console.log("Checking for existing conversations after connection");
+            checkForConversationUpdates();
+        }, 1000);
         
     } catch (error) {
         console.error("Connection error:", error);
@@ -1110,7 +1130,9 @@ function notifyConversationStarted(targetUid, conversationId, startTime) {
         user2: Math.max(options.uid, targetUid),
         startTime: startTime,
         status: 'active',
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        initiator: options.uid,
+        target: targetUid
     };
     
     window.sharedConversations.set(conversationId, conversationData);
@@ -1120,12 +1142,27 @@ function notifyConversationStarted(targetUid, conversationId, startTime) {
         const storedConversations = JSON.parse(localStorage.getItem('sharedConversations') || '{}');
         storedConversations[conversationId] = conversationData;
         localStorage.setItem('sharedConversations', JSON.stringify(storedConversations));
+        
+        // Force a storage event to trigger immediate updates
+        localStorage.setItem('conversationTrigger', Date.now().toString());
     } catch (error) {
         console.warn("Failed to store conversation in localStorage:", error);
     }
     
     console.log(`Notified conversation started: ${conversationId} between ${options.uid} and ${targetUid}`);
     console.log("Shared conversations after notification:", Array.from(window.sharedConversations.entries()));
+    
+    // Force immediate check for the target user
+    setTimeout(() => {
+        // Trigger a storage event to ensure other users see this immediately
+        const event = new StorageEvent('storage', {
+            key: 'sharedConversations',
+            newValue: localStorage.getItem('sharedConversations'),
+            oldValue: null,
+            storageArea: localStorage
+        });
+        window.dispatchEvent(event);
+    }, 100);
 }
 
 function checkForUserStatusUpdates() {
@@ -1266,14 +1303,20 @@ function checkForConversationUpdates() {
         console.log(`Checking conversation ${conversationId}:`, conversation);
         console.log(`Current user: ${options.uid}, isInConversation: ${isInConversation}`);
         
-        if ((conversation.user1 === options.uid || conversation.user2 === options.uid) && 
-            conversation.status === 'active' && 
-            !isInConversation) {
+        // Check if this conversation involves the current user and is active
+        const isUserInConversation = (conversation.user1 === options.uid || conversation.user2 === options.uid);
+        const isActiveConversation = conversation.status === 'active';
+        const isNotAlreadyInConversation = !isInConversation;
+        
+        console.log(`Conversation check: isUserInConversation=${isUserInConversation}, isActiveConversation=${isActiveConversation}, isNotAlreadyInConversation=${isNotAlreadyInConversation}`);
+        
+        if (isUserInConversation && isActiveConversation && isNotAlreadyInConversation) {
             
             // This user should be in this conversation (started by someone else)
             const partnerUid = conversation.user1 === options.uid ? conversation.user2 : conversation.user1;
             
             console.log(`Joining existing conversation ${conversationId} with User ${partnerUid}`);
+            debugConversationState();
             
             // Update local state
             currentConversationPartner = partnerUid;
@@ -1418,6 +1461,19 @@ function verifyConversationSync(conversationId, partnerUid) {
     return true;
 }
 
+function debugConversationState() {
+    console.log("=== CONVERSATION DEBUG ===");
+    console.log("Current user:", options.uid);
+    console.log("isInConversation:", isInConversation);
+    console.log("currentConversationPartner:", currentConversationPartner);
+    console.log("currentConversationId:", currentConversationId);
+    console.log("Shared conversations:", window.sharedConversations ? Array.from(window.sharedConversations.entries()) : "None");
+    console.log("Active conversations:", Array.from(activeConversations.entries()));
+    console.log("Platform users:", Array.from(platformUsers.entries()));
+    console.log("Waiting users:", Array.from(waitingUsers));
+    console.log("========================");
+}
+
 
 
 // Cleanup on page unload
@@ -1446,7 +1502,7 @@ setInterval(() => {
         checkForConversationUpdates();
         checkForUserStatusUpdates();
     }
-}, 1000);
+}, 500); // Check more frequently
 
 // Debug: Log shared conversations every 5 seconds
 setInterval(() => {

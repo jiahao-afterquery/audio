@@ -486,6 +486,12 @@ async function connectToPlatform(retryCount = 0) {
         // Add user to platform
         addUserToPlatform(options.uid, "available");
         
+        // Broadcast our presence to all other users in the channel
+        setTimeout(() => {
+            console.log("Broadcasting user presence to channel");
+            broadcastUserPresence();
+        }, 1000);
+        
         // Clean up any duplicates that might have been created during connection
         setTimeout(() => {
             cleanupDuplicateUsers();
@@ -1451,6 +1457,10 @@ function handleLocalStorageMessages() {
                     console.log("Handling force conversation check message from localStorage");
                     handleForceConversationCheckMessage(message);
                     break;
+                case 'user_presence':
+                    console.log("Handling user presence message from localStorage");
+                    handleUserPresenceMessage(message);
+                    break;
                 default:
                     console.log("Unknown message type:", message.type);
             }
@@ -1511,6 +1521,10 @@ async function handleApiMessages() {
                     case 'force_conversation_check':
                         console.log("Handling force conversation check message from API");
                         handleForceConversationCheckMessage(messageData);
+                        break;
+                    case 'user_presence':
+                        console.log("Handling user presence message from API");
+                        handleUserPresenceMessage(messageData);
                         break;
                     default:
                         console.log("Unknown message type from API:", messageData.type);
@@ -1724,6 +1738,26 @@ function forceConversationCheckForUser(targetUid) {
     }, 500);
 }
 
+function broadcastUserPresence() {
+    console.log("Broadcasting user presence to all users in channel");
+    
+    // Send a presence message to all users
+    sendChannelMessage({
+        type: 'user_presence',
+        uid: options.uid,
+        status: "available",
+        timestamp: Date.now(),
+        channel: options.channel
+    }).catch(error => {
+        console.error("Failed to broadcast user presence:", error);
+    });
+    
+    // Also send via user status system
+    setUserStatus(options.uid, "available").catch(error => {
+        console.error("Failed to set user status during presence broadcast:", error);
+    });
+}
+
 function handleConversationStartMessage(data) {
     const { conversationId, user1, user2, startTime, initiator } = data;
     
@@ -1927,6 +1961,28 @@ function handleForceConversationCheckMessage(data) {
         checkForConversationUpdates();
         checkForConversationWithUser(initiatorUid);
     }, 100);
+}
+
+function handleUserPresenceMessage(data) {
+    const { uid, status, timestamp, channel } = data;
+    
+    // Skip our own presence messages
+    if (uid === options.uid) return;
+    
+    console.log(`Received user presence message: User ${uid} is ${status} in channel ${channel}`);
+    
+    // Add or update user in our local platform
+    if (!platformUsers.has(uid)) {
+        console.log(`Adding new user ${uid} from presence message`);
+        addUserToPlatform(uid, status);
+    } else {
+        console.log(`Updating user ${uid} status to ${status}`);
+        const user = platformUsers.get(uid);
+        user.status = status;
+        user.timestamp = timestamp;
+        updateUserList();
+        updateStats();
+    }
 }
 
 function generateConversationId() {
@@ -2535,6 +2591,14 @@ setInterval(() => {
         }
     }
 }, 300); // Check every 300ms for even more responsive cross-device communication on GitHub Pages
+
+// Periodic presence broadcast to ensure users stay visible
+setInterval(() => {
+    if (isConnected && !isInConversation) {
+        // Broadcast presence every 10 seconds to ensure other users can see us
+        broadcastUserPresence();
+    }
+}, 10000); // Every 10 seconds
 
 // Debug: Log shared conversations every 5 seconds
 setInterval(() => {

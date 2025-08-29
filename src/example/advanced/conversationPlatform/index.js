@@ -742,6 +742,8 @@ function shareUserStatus(uid, status, conversationPartner) {
 function endConversation() {
     if (!isInConversation) return;
     
+    console.log(`User ${options.uid} ending conversation with User ${currentConversationPartner}`);
+    
     // Stop recording
     stopConversationRecording();
     
@@ -751,8 +753,12 @@ function endConversation() {
         setUserStatus(currentConversationPartner, "available");
         
         // Clear conversation partners
-        platformUsers.get(options.uid).conversationPartner = null;
-        platformUsers.get(currentConversationPartner).conversationPartner = null;
+        if (platformUsers.has(options.uid)) {
+            platformUsers.get(options.uid).conversationPartner = null;
+        }
+        if (platformUsers.has(currentConversationPartner)) {
+            platformUsers.get(currentConversationPartner).conversationPartner = null;
+        }
         
         // Notify other user that conversation ended
         notifyConversationEnded(currentConversationPartner, options.uid);
@@ -1141,6 +1147,12 @@ function checkForUserStatusUpdates() {
             setTimeout(() => checkForConversationUpdates(), 100);
         }
         
+        // If we're not in a conversation but someone is trying to talk to us, check for conversations
+        if (userStatus.status === "in-conversation" && userStatus.conversationPartner === options.uid && !isInConversation) {
+            console.log(`User ${uid} is trying to talk to us, forcing conversation check`);
+            setTimeout(() => checkForConversationUpdates(), 50);
+        }
+        
         const localUser = platformUsers.get(uid);
         if (localUser) {
             // Update local user status if it's different
@@ -1231,10 +1243,11 @@ function checkForConversationUpdates() {
         const isUserInConversation = (conversation.user1 === options.uid || conversation.user2 === options.uid);
         const isActiveConversation = conversation.status === 'active';
         const isNotAlreadyInConversation = !isInConversation;
+        const isRecentConversation = conversation.timestamp && (Date.now() - conversation.timestamp) < 30000; // Within 30 seconds
         
-        console.log(`Conversation check: isUserInConversation=${isUserInConversation}, isActiveConversation=${isActiveConversation}, isNotAlreadyInConversation=${isNotAlreadyInConversation}`);
+        console.log(`Conversation check: isUserInConversation=${isUserInConversation}, isActiveConversation=${isActiveConversation}, isNotAlreadyInConversation=${isNotAlreadyInConversation}, isRecentConversation=${isRecentConversation}`);
         
-        if (isUserInConversation && isActiveConversation && isNotAlreadyInConversation) {
+        if (isUserInConversation && isActiveConversation && isNotAlreadyInConversation && isRecentConversation) {
             
             // This user should be in this conversation (started by someone else)
             const partnerUid = conversation.user1 === options.uid ? conversation.user2 : conversation.user1;
@@ -1277,10 +1290,11 @@ function checkForConversationUpdates() {
             
             message.success(`Conversation started with User ${partnerUid}!`);
             
-            // Mark as processed
-            conversation.status = 'processed';
+            // Keep conversation active so both users can join
+            // Don't mark as processed until both users have joined
+            console.log(`User ${options.uid} joined conversation ${conversationId}`);
             
-            // Update localStorage to reflect the processed status
+            // Update localStorage to reflect the joined status
             try {
                 const storedConversations = JSON.parse(localStorage.getItem('sharedConversations') || '{}');
                 storedConversations[conversationId] = conversation;
@@ -1344,6 +1358,8 @@ function cleanupExistingConversations(user1Uid, user2Uid) {
 function notifyConversationEnded(targetUid, fromUid) {
     if (!window.sharedConversations) return;
     
+    console.log(`Notifying User ${targetUid} that conversation ended by User ${fromUid}`);
+    
     // Find and mark the conversation as ended
     for (let [conversationId, conversation] of window.sharedConversations.entries()) {
         if ((conversation.user1 === targetUid || conversation.user2 === targetUid) && 
@@ -1362,6 +1378,19 @@ function notifyConversationEnded(targetUid, fromUid) {
             }
             
             console.log(`Notified conversation ended: ${conversationId}`);
+            
+            // Force immediate update for the target user
+            setTimeout(() => {
+                // Trigger a storage event to ensure other users see this immediately
+                const event = new StorageEvent('storage', {
+                    key: 'sharedConversations',
+                    newValue: localStorage.getItem('sharedConversations'),
+                    oldValue: null,
+                    storageArea: localStorage
+                });
+                window.dispatchEvent(event);
+            }, 100);
+            
             break;
         }
     }

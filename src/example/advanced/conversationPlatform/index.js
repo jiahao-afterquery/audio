@@ -450,6 +450,7 @@ function setupClientEventHandlers() {
     client.on("user-joined", handleUserJoined);
     client.on("user-left", handleUserLeft);
     client.on("connection-state-change", handleConnectionStateChange);
+    client.on("message", handleChannelMessage);
 }
 
 async function createAndPublishAudioTrack() {
@@ -490,7 +491,9 @@ function addUserToPlatform(uid, status) {
     }
     
     // Share user status with other users
-    shareUserStatus(uid, status, null);
+    shareUserStatus(uid, status, null).catch(error => {
+        console.error("Failed to share user status:", error);
+    });
     
     updateUserList();
     updateStats();
@@ -660,8 +663,12 @@ function startConversation(user1Uid, user2Uid) {
     console.log(`Starting conversation ${conversationId} between User ${user1Uid} and User ${user2Uid}`);
     
     // Update user statuses
-    setUserStatus(user1Uid, "in-conversation");
-    setUserStatus(user2Uid, "in-conversation");
+    setUserStatus(user1Uid, "in-conversation").catch(error => {
+        console.error("Failed to set user status:", error);
+    });
+    setUserStatus(user2Uid, "in-conversation").catch(error => {
+        console.error("Failed to set user status:", error);
+    });
     
     // Set conversation partners
     platformUsers.get(user1Uid).conversationPartner = user2Uid;
@@ -690,13 +697,15 @@ function startConversation(user1Uid, user2Uid) {
     }
     
     // Notify other user about conversation start - this will trigger them to join
-    notifyConversationStarted(user2Uid, conversationId, startTime);
+    notifyConversationStarted(user2Uid, conversationId, startTime).catch(error => {
+        console.error("Failed to notify conversation start:", error);
+    });
     
     updateStats();
     updateUserList();
 }
 
-function setUserStatus(uid, status) {
+async function setUserStatus(uid, status) {
     const user = platformUsers.get(uid);
     if (user) {
         user.status = status;
@@ -708,27 +717,37 @@ function setUserStatus(uid, status) {
         }
         
         // Share status change with other users
-        shareUserStatus(uid, status, user.conversationPartner);
+        await shareUserStatus(uid, status, user.conversationPartner);
     }
 }
 
-function shareUserStatus(uid, status, conversationPartner) {
-    // Store user status in a shared location
-    if (!window.sharedUserStatuses) {
-        window.sharedUserStatuses = new Map();
-    }
-    
-    const userStatus = {
+async function shareUserStatus(uid, status, conversationPartner) {
+    // Send message to all users in the channel
+    const messageData = {
+        type: 'user_status',
         uid: uid,
         status: status,
         conversationPartner: conversationPartner,
         timestamp: Date.now()
     };
     
-    window.sharedUserStatuses.set(uid, userStatus);
+    await sendChannelMessage(messageData);
     
-    // Also store in localStorage for cross-tab communication
+    // Also store in localStorage for cross-tab communication (backup)
     try {
+        if (!window.sharedUserStatuses) {
+            window.sharedUserStatuses = new Map();
+        }
+        
+        const userStatus = {
+            uid: uid,
+            status: status,
+            conversationPartner: conversationPartner,
+            timestamp: Date.now()
+        };
+        
+        window.sharedUserStatuses.set(uid, userStatus);
+        
         const storedUserStatuses = JSON.parse(localStorage.getItem('sharedUserStatuses') || '{}');
         storedUserStatuses[uid] = userStatus;
         localStorage.setItem('sharedUserStatuses', JSON.stringify(storedUserStatuses));
@@ -749,8 +768,12 @@ function endConversation() {
     
     // Update user statuses
     if (currentConversationPartner) {
-        setUserStatus(options.uid, "available");
-        setUserStatus(currentConversationPartner, "available");
+        setUserStatus(options.uid, "available").catch(error => {
+            console.error("Failed to set user status:", error);
+        });
+        setUserStatus(currentConversationPartner, "available").catch(error => {
+            console.error("Failed to set user status:", error);
+        });
         
         // Clear conversation partners
         if (platformUsers.has(options.uid)) {
@@ -761,7 +784,9 @@ function endConversation() {
         }
         
         // Notify other user that conversation ended
-        notifyConversationEnded(currentConversationPartner, options.uid);
+        notifyConversationEnded(currentConversationPartner, options.uid).catch(error => {
+            console.error("Failed to notify conversation end:", error);
+        });
     }
     
     // Reset conversation state
@@ -1030,6 +1055,180 @@ function handleConnectionStateChange(curState, prevState) {
     }
 }
 
+function handleChannelMessage(message) {
+    try {
+        const data = JSON.parse(message.text);
+        console.log("Received channel message:", data);
+        
+        switch (data.type) {
+            case 'conversation_start':
+                handleConversationStartMessage(data);
+                break;
+            case 'conversation_end':
+                handleConversationEndMessage(data);
+                break;
+            case 'user_status':
+                handleUserStatusMessage(data);
+                break;
+            default:
+                console.log("Unknown message type:", data.type);
+        }
+    } catch (error) {
+        console.error("Error parsing channel message:", error);
+    }
+}
+
+function handleConversationStartMessage(data) {
+    const { conversationId, user1, user2, startTime, initiator } = data;
+    
+    console.log(`Received conversation start message: ${conversationId} between ${user1} and ${user2}`);
+    
+    // Check if this involves the current user
+    if (user1 === options.uid || user2 === options.uid) {
+        const partnerUid = user1 === options.uid ? user2 : user1;
+        
+        // Only join if we're not already in a conversation
+        if (!isInConversation) {
+            console.log(`Joining conversation ${conversationId} with User ${partnerUid}`);
+            
+            // Update local state
+            currentConversationPartner = partnerUid;
+            isInConversation = true;
+            conversationStartTime = startTime;
+            currentConversationId = conversationId;
+            
+            // Update user status
+            setUserStatus(options.uid, "in-conversation").catch(error => {
+                console.error("Failed to set user status:", error);
+            });
+            if (platformUsers.has(options.uid)) {
+                platformUsers.get(options.uid).conversationPartner = partnerUid;
+            }
+            
+            // Start recording
+            startConversationRecording(conversationId);
+            
+            // Update UI
+            updateConversationStatus(`In conversation with User ${partnerUid}`);
+            showConversationControls();
+            
+            // Add to active conversations
+            activeConversations.set(conversationId, {
+                user1: user1,
+                user2: user2,
+                startTime: startTime
+            });
+            
+            updateStats();
+            updateUserList();
+            
+            message.success(`Conversation started with User ${partnerUid}!`);
+        }
+    }
+}
+
+function handleConversationEndMessage(data) {
+    const { conversationId, user1, user2, endedBy } = data;
+    
+    console.log(`Received conversation end message: ${conversationId} ended by ${endedBy}`);
+    
+    // Check if this involves the current user
+    if (user1 === options.uid || user2 === options.uid) {
+        const partnerUid = user1 === options.uid ? user2 : user1;
+        
+        if (isInConversation && currentConversationPartner === partnerUid) {
+            console.log(`Ending conversation ${conversationId} as requested by User ${endedBy}`);
+            
+            // Stop recording
+            stopConversationRecording();
+            
+            // Update user statuses
+            setUserStatus(options.uid, "available").catch(error => {
+                console.error("Failed to set user status:", error);
+            });
+            setUserStatus(partnerUid, "available").catch(error => {
+                console.error("Failed to set user status:", error);
+            });
+            
+            // Clear conversation partners
+            if (platformUsers.has(options.uid)) {
+                platformUsers.get(options.uid).conversationPartner = null;
+            }
+            if (platformUsers.has(partnerUid)) {
+                platformUsers.get(partnerUid).conversationPartner = null;
+            }
+            
+            // Reset conversation state
+            isInConversation = false;
+            currentConversationPartner = null;
+            conversationStartTime = null;
+            currentConversationId = null;
+            
+            // Remove from active conversations
+            for (let [convId, conv] of activeConversations.entries()) {
+                if (conv.user1 === options.uid || conv.user2 === options.uid) {
+                    activeConversations.delete(convId);
+                    break;
+                }
+            }
+            
+            // Update UI
+            updateConversationStatus("Conversation ended by other user.");
+            showAvailableControls();
+            updateStats();
+            updateUserList();
+            
+            message.info("Other user ended the conversation.");
+        }
+    }
+}
+
+function handleUserStatusMessage(data) {
+    const { uid, status, conversationPartner, timestamp } = data;
+    
+    // Skip our own status updates
+    if (uid === options.uid) return;
+    
+    console.log(`Received user status message: User ${uid} is now ${status}`);
+    
+    // Update local user status
+    const localUser = platformUsers.get(uid);
+    if (localUser) {
+        localUser.status = status;
+        localUser.conversationPartner = conversationPartner;
+        localUser.timestamp = timestamp;
+        
+        // Update waiting users set
+        if (status === "waiting") {
+            waitingUsers.add(uid);
+        } else {
+            waitingUsers.delete(uid);
+        }
+        
+        console.log(`Updated user status: User ${uid} is now ${status}`);
+    } else {
+        // Add new user if they don't exist locally
+        const newUser = {
+            uid: uid,
+            status: status,
+            conversationPartner: conversationPartner,
+            joinTime: timestamp,
+            timestamp: timestamp
+        };
+        
+        platformUsers.set(uid, newUser);
+        
+        if (status === "waiting") {
+            waitingUsers.add(uid);
+        }
+        
+        console.log(`Added new user: User ${uid} with status ${status}`);
+    }
+    
+    updateUserList();
+    updateStats();
+}
+
 function generateConversationId() {
     return 'conv_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
 }
@@ -1048,51 +1247,61 @@ function generateUniqueUID() {
     return timestamp + random;
 }
 
-// Conversation coordination using shared state
-function notifyConversationStarted(targetUid, conversationId, startTime) {
-    // Store conversation info in a shared location that other users can access
-    if (!window.sharedConversations) {
-        window.sharedConversations = new Map();
+// Cross-device communication using Agora channel messaging
+async function sendChannelMessage(messageData) {
+    try {
+        if (client && isConnected) {
+            const message = JSON.stringify(messageData);
+            await client.sendMessageToPeer(message);
+            console.log("Sent channel message:", messageData);
+        }
+    } catch (error) {
+        console.error("Failed to send channel message:", error);
     }
-    
-    const conversationData = {
+}
+
+// Conversation coordination using cross-device messaging
+async function notifyConversationStarted(targetUid, conversationId, startTime) {
+    // Send message to all users in the channel
+    const messageData = {
+        type: 'conversation_start',
+        conversationId: conversationId,
         user1: Math.min(options.uid, targetUid),
         user2: Math.max(options.uid, targetUid),
         startTime: startTime,
-        status: 'active',
-        timestamp: Date.now(),
         initiator: options.uid,
-        target: targetUid
+        target: targetUid,
+        timestamp: Date.now()
     };
     
-    window.sharedConversations.set(conversationId, conversationData);
+    await sendChannelMessage(messageData);
     
-    // Also store in localStorage for cross-tab communication
+    // Also store in localStorage for cross-tab communication (backup)
     try {
+        if (!window.sharedConversations) {
+            window.sharedConversations = new Map();
+        }
+        
+        const conversationData = {
+            user1: Math.min(options.uid, targetUid),
+            user2: Math.max(options.uid, targetUid),
+            startTime: startTime,
+            status: 'active',
+            timestamp: Date.now(),
+            initiator: options.uid,
+            target: targetUid
+        };
+        
+        window.sharedConversations.set(conversationId, conversationData);
+        
         const storedConversations = JSON.parse(localStorage.getItem('sharedConversations') || '{}');
         storedConversations[conversationId] = conversationData;
         localStorage.setItem('sharedConversations', JSON.stringify(storedConversations));
-        
-        // Force a storage event to trigger immediate updates
-        localStorage.setItem('conversationTrigger', Date.now().toString());
     } catch (error) {
         console.warn("Failed to store conversation in localStorage:", error);
     }
     
     console.log(`Notified conversation started: ${conversationId} between ${options.uid} and ${targetUid}`);
-    console.log("Shared conversations after notification:", Array.from(window.sharedConversations.entries()));
-    
-    // Force immediate check for the target user
-    setTimeout(() => {
-        // Trigger a storage event to ensure other users see this immediately
-        const event = new StorageEvent('storage', {
-            key: 'sharedConversations',
-            newValue: localStorage.getItem('sharedConversations'),
-            oldValue: null,
-            storageArea: localStorage
-        });
-        window.dispatchEvent(event);
-    }, 100);
 }
 
 function checkForUserStatusUpdates() {
@@ -1262,7 +1471,9 @@ function checkForConversationUpdates() {
             currentConversationId = conversationId; // Store the conversation ID
             
             // Update user status
-            setUserStatus(options.uid, "in-conversation");
+            setUserStatus(options.uid, "in-conversation").catch(error => {
+                console.error("Failed to set user status:", error);
+            });
             if (platformUsers.has(options.uid)) {
                 platformUsers.get(options.uid).conversationPartner = partnerUid;
             }
@@ -1355,44 +1566,51 @@ function cleanupExistingConversations(user1Uid, user2Uid) {
     }
 }
 
-function notifyConversationEnded(targetUid, fromUid) {
-    if (!window.sharedConversations) return;
-    
+async function notifyConversationEnded(targetUid, fromUid) {
     console.log(`Notifying User ${targetUid} that conversation ended by User ${fromUid}`);
     
-    // Find and mark the conversation as ended
-    for (let [conversationId, conversation] of window.sharedConversations.entries()) {
-        if ((conversation.user1 === targetUid || conversation.user2 === targetUid) && 
-            (conversation.user1 === fromUid || conversation.user2 === fromUid)) {
-            conversation.status = 'ended';
-            
-            // Update localStorage
-            try {
+    // Find the conversation to get the conversation ID
+    let conversationId = null;
+    if (window.sharedConversations) {
+        for (let [convId, conversation] of window.sharedConversations.entries()) {
+            if ((conversation.user1 === targetUid || conversation.user2 === targetUid) && 
+                (conversation.user1 === fromUid || conversation.user2 === fromUid)) {
+                conversationId = convId;
+                break;
+            }
+        }
+    }
+    
+    if (conversationId) {
+        // Send message to all users in the channel
+        const messageData = {
+            type: 'conversation_end',
+            conversationId: conversationId,
+            user1: Math.min(targetUid, fromUid),
+            user2: Math.max(targetUid, fromUid),
+            endedBy: fromUid,
+            timestamp: Date.now()
+        };
+        
+        await sendChannelMessage(messageData);
+        
+        // Also update localStorage for cross-tab communication (backup)
+        try {
+            if (window.sharedConversations && window.sharedConversations.has(conversationId)) {
+                const conversation = window.sharedConversations.get(conversationId);
+                conversation.status = 'ended';
+                
                 const storedConversations = JSON.parse(localStorage.getItem('sharedConversations') || '{}');
                 if (storedConversations[conversationId]) {
                     storedConversations[conversationId].status = 'ended';
                     localStorage.setItem('sharedConversations', JSON.stringify(storedConversations));
                 }
-            } catch (error) {
-                console.warn("Failed to update conversation in localStorage:", error);
             }
-            
-            console.log(`Notified conversation ended: ${conversationId}`);
-            
-            // Force immediate update for the target user
-            setTimeout(() => {
-                // Trigger a storage event to ensure other users see this immediately
-                const event = new StorageEvent('storage', {
-                    key: 'sharedConversations',
-                    newValue: localStorage.getItem('sharedConversations'),
-                    oldValue: null,
-                    storageArea: localStorage
-                });
-                window.dispatchEvent(event);
-            }, 100);
-            
-            break;
+        } catch (error) {
+            console.warn("Failed to update conversation in localStorage:", error);
         }
+        
+        console.log(`Notified conversation ended: ${conversationId}`);
     }
 }
 

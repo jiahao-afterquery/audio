@@ -1,23 +1,19 @@
 // Production Configuration for conversation recording server
-// Update this file with your Railway backend URL
+// Update this file with your Railway URL
 
 const CONFIG = {
     // Recording server settings
     RECORDING_SERVER: {
-        // TODO: Replace with your Railway URL
-        // Example: https://conversation-backend-production-xxxx.up.railway.app
-        UPLOAD_URL: 'https://YOUR_RAILWAY_URL.railway.app/api/recordings/upload',
+        // Disable server uploads - use local downloads only
+        ENABLE_SERVER_UPLOADS: false,
         
-        // Enable server uploads (recommended for production)
-        ENABLE_SERVER_UPLOADS: true,
-        
-        // Fallback to local download if server upload fails
+        // Fallback to local download if server upload fails (not needed since uploads are disabled)
         FALLBACK_TO_LOCAL: true,
         
-        // Upload timeout in milliseconds
+        // Upload timeout in milliseconds (not used since uploads are disabled)
         UPLOAD_TIMEOUT: 30000, // 30 seconds
         
-        // Retry settings
+        // Retry settings (not used since uploads are disabled)
         MAX_RETRIES: 3,
         RETRY_DELAY: 2000 // 2 seconds
     },
@@ -57,8 +53,7 @@ if (typeof module !== 'undefined' && module.exports) {
 }
 
 // Instructions for updating this file:
-// 1. Replace 'YOUR_RAILWAY_URL' with your actual Railway URL
-// 2. The URL should look like: https://conversation-backend-production-xxxx.up.railway.app
-// 3. Make sure to include the full path: /api/recordings/upload
-// 4. Test the URL by visiting it in your browser - you should see a JSON response
+// 1. This file is now configured for local downloads only
+// 2. No server URL is needed since recordings are downloaded locally
+// 3. Each user will automatically download their own recording when a conversation ends
 

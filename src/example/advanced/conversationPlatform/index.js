@@ -819,8 +819,8 @@ function startConversationRecording(conversationId) {
                 const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
                 const filename = `user-${options.uid}-conversation-${conversationId}-${timestamp}.webm`;
                 
-                // Upload local user's recording
-                uploadRecordingToServer(filename, url, conversationId, options.uid, 'local');
+                // Download recording locally
+                autoDownloadRecording(filename, url);
                 
                 // Clean up
                 localRecordedChunks = [];
@@ -853,84 +853,7 @@ function stopConversationRecording() {
     }
 }
 
-async function uploadRecordingToServer(filename, url, conversationId, userId, recordingType = 'local') {
-    // Check if server uploads are enabled
-    if (!window.CONFIG || !window.CONFIG.RECORDING_SERVER.ENABLE_SERVER_UPLOADS) {
-        console.log('Server uploads disabled, using local download');
-        autoDownloadRecording(filename, url);
-        return;
-    }
-
-    let retries = 0;
-    const maxRetries = window.CONFIG?.RECORDING_SERVER.MAX_RETRIES || 3;
-    const retryDelay = window.CONFIG?.RECORDING_SERVER.RETRY_DELAY || 2000;
-
-    while (retries <= maxRetries) {
-        try {
-            // Convert blob URL to blob object
-            const response = await fetch(url);
-            const blob = await response.blob();
-            
-            // Validate file size
-            if (blob.size > (window.CONFIG?.RECORDING.MAX_FILE_SIZE || 50 * 1024 * 1024)) {
-                throw new Error('File size too large');
-            }
-            
-            // Create FormData for file upload
-            const formData = new FormData();
-            formData.append('recording', blob, filename);
-            formData.append('conversationId', conversationId);
-            formData.append('userId', userId);
-            formData.append('recordingType', recordingType);
-            formData.append('timestamp', new Date().toISOString());
-            formData.append('channel', options.channel);
-            
-            // Upload to server with timeout
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 
-                window.CONFIG?.RECORDING_SERVER.UPLOAD_TIMEOUT || 30000);
-            
-            const uploadResponse = await fetch(window.CONFIG.RECORDING_SERVER.UPLOAD_URL, {
-                method: 'POST',
-                body: formData,
-                signal: controller.signal
-            });
-            
-            clearTimeout(timeoutId);
-            
-            if (uploadResponse.ok) {
-                const result = await uploadResponse.json();
-                console.log(`Recording uploaded successfully: ${filename}`);
-                message.success(`Recording uploaded: ${filename}`);
-                
-                // Clean up the URL object
-                URL.revokeObjectURL(url);
-                
-                return result;
-            } else {
-                throw new Error(`Upload failed: ${uploadResponse.status}`);
-            }
-            
-        } catch (error) {
-            retries++;
-            console.error(`Upload attempt ${retries} failed:`, error);
-            
-            if (retries <= maxRetries) {
-                console.log(`Retrying upload in ${retryDelay}ms... (${retries}/${maxRetries})`);
-                await new Promise(resolve => setTimeout(resolve, retryDelay));
-            } else {
-                console.error('All upload attempts failed');
-                message.error(`Failed to upload recording after ${maxRetries} attempts`);
-                
-                // Fallback to local download if enabled
-                if (window.CONFIG?.RECORDING_SERVER.FALLBACK_TO_LOCAL) {
-                    console.log('Falling back to local download...');
-                    autoDownloadRecording(filename, url);
-                }
-            }
-        }
-    }
-}
+// Server upload function removed - using local downloads only
 
 function autoDownloadRecording(filename, url) {
     // Create a temporary link element
@@ -944,13 +867,14 @@ function autoDownloadRecording(filename, url) {
     downloadLink.click();
     document.body.removeChild(downloadLink);
     
+    // Show success message
+    console.log(`Recording downloaded: ${filename}`);
+    message.success(`Recording downloaded: ${filename}`);
+    
     // Clean up the URL object after a delay
     setTimeout(() => {
         URL.revokeObjectURL(url);
     }, 1000);
-    
-    console.log(`Automatically downloaded: ${filename}`);
-    message.success(`Recording saved: ${filename}`);
 }
 
 function addRecordingToList(filename, url, conversationId) {

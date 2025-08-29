@@ -24,6 +24,7 @@ Compared to the Web SDK 3.x, the Web SDK 4.x has the following advantages:
 | ----------------------- | ------------------------------------------------------------ |
 | Basic Examples          | [/src/example/basic](/src/example/basic)                     |
 | Advanced Examples       | [/src/example/advanced](/src/example/advanced)               |
+| **Conversation Platform** | [/src/example/advanced/conversationPlatform](/src/example/advanced/conversationPlatform) |
 | Plugin Examples         | [/src/example/plugin](/src/example/plugin)                   |
 | Other Examples          | [/src/example/others](/src/example/others)                   |
 | Vue Framework Example   | [/src/example/framework/vue](/src/example/framework/vue)     |
@@ -53,6 +54,44 @@ You need a supported browser to run the sample projects. See [Product Overview](
 
 4. In the demo setting page, enter your App ID and App Certificate, then click SetUp button.
    - See [Get Started with Agora](https://docs.agora.io/en/Agora%20Platform/get_appid_token) to learn how to get an App ID and App Certificate.
+
+## Conversation Platform
+
+The **Conversation Platform** is a sophisticated real-time communication application that allows up to 1000 users to join and have one-on-one conversations.
+
+### Features
+
+- **Multi-User Support**: Up to 1000 users can join the platform simultaneously
+- **Manual Conversation Control**: Users manually choose who to talk to
+- **Automatic Recording**: Each user's audio is automatically recorded during conversations
+- **Local Downloads**: Recordings are automatically downloaded to the user's device
+- **Real-Time Status**: Users can see who's available, waiting, or in conversation
+- **Cross-Tab Synchronization**: Works across multiple browser tabs/windows
+
+### How to Use
+
+1. **Setup**: Configure your Agora App ID and App Certificate in the setup page
+2. **Connect**: Join the conversation platform
+3. **Find Partner**: See available users and their status
+4. **Start Conversation**: Click "Start Conversation" with an available user
+5. **Talk**: Have a real-time conversation
+6. **End**: Click "End Conversation" when done
+7. **Download**: Recording automatically downloads to your device
+
+### Recording System
+
+- **Format**: WebM audio with Opus codec
+- **Storage**: Local downloads only (no server required)
+- **Naming**: `user-{UID}-conversation-{conversationId}-{timestamp}.webm`
+- **Privacy**: Each user only records their own audio track
+
+### Technical Details
+
+- **Real-time Communication**: Agora RTC Web SDK 4.x
+- **Cross-Tab Sync**: localStorage and polling mechanism
+- **Audio Recording**: MediaRecorder API
+- **File Format**: WebM/Opus for optimal quality and size
+- **No Backend Required**: Pure client-side application
 
 ## Reference
 

@@ -2,19 +2,16 @@
 const CONFIG = {
     // Recording server settings
     RECORDING_SERVER: {
-        // Change this to your actual server URL in production
-        UPLOAD_URL: 'http://localhost:3002/api/recordings/upload',
+        // Disable server uploads - use local downloads only
+        ENABLE_SERVER_UPLOADS: false,
         
-        // Enable/disable server uploads (set to false to use local downloads only)
-        ENABLE_SERVER_UPLOADS: true,
-        
-        // Fallback to local download if server upload fails
+        // Fallback to local download if server upload fails (not needed since uploads are disabled)
         FALLBACK_TO_LOCAL: true,
         
-        // Upload timeout in milliseconds
+        // Upload timeout in milliseconds (not used since uploads are disabled)
         UPLOAD_TIMEOUT: 30000, // 30 seconds
         
-        // Retry settings
+        // Retry settings (not used since uploads are disabled)
         MAX_RETRIES: 3,
         RETRY_DELAY: 2000 // 2 seconds
     },

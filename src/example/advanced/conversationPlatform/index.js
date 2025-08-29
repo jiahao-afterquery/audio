@@ -49,6 +49,12 @@ $(document).ready(function() {
         console.log("Additional cleanup completed after page load");
     }, 1000);
     
+    // More aggressive cleanup for same-browser tabs
+    setTimeout(() => {
+        cleanupSameBrowserDuplicates();
+        console.log("Same-browser duplicate cleanup completed");
+    }, 2000);
+    
     // Force conversation check after connection
     setTimeout(() => {
         if (isConnected) {
@@ -240,6 +246,74 @@ function cleanupDuplicateUsers() {
     updateStats();
     
     console.log("=== DUPLICATE CLEANUP COMPLETE ===");
+    console.log("Remaining users:", Array.from(platformUsers.keys()));
+}
+
+function cleanupSameBrowserDuplicates() {
+    console.log("=== CLEANING UP SAME-BROWSER DUPLICATES ===");
+    
+    // For same-browser tabs, we need to be more aggressive about cleanup
+    // Check if we have multiple users with the same UID pattern
+    const userCounts = new Map();
+    
+    for (let [uid, user] of platformUsers.entries()) {
+        // Count occurrences of each UID
+        userCounts.set(uid, (userCounts.get(uid) || 0) + 1);
+    }
+    
+    // Remove duplicates if we have more than one instance of the same user
+    for (let [uid, count] of userCounts.entries()) {
+        if (count > 1) {
+            console.log(`Found ${count} instances of User ${uid}, removing duplicates`);
+            
+            // Keep only the first instance, remove the rest
+            let firstFound = false;
+            const usersToRemove = [];
+            
+            for (let [currentUid, user] of platformUsers.entries()) {
+                if (currentUid === uid) {
+                    if (!firstFound) {
+                        firstFound = true;
+                    } else {
+                        usersToRemove.push(currentUid);
+                    }
+                }
+            }
+            
+            // Remove duplicate instances
+            usersToRemove.forEach(uidToRemove => {
+                platformUsers.delete(uidToRemove);
+                waitingUsers.delete(uidToRemove);
+                console.log(`Removed duplicate instance of User ${uidToRemove}`);
+            });
+        }
+    }
+    
+    // Also clean up any stale localStorage data that might be causing issues
+    try {
+        const storedUserStatuses = JSON.parse(localStorage.getItem('sharedUserStatuses') || '{}');
+        const currentTime = Date.now();
+        const staleTimeout = 2 * 60 * 1000; // 2 minutes
+        
+        // Remove stale entries
+        Object.keys(storedUserStatuses).forEach(uid => {
+            const userStatus = storedUserStatuses[uid];
+            if (userStatus.timestamp && (currentTime - userStatus.timestamp) > staleTimeout) {
+                delete storedUserStatuses[uid];
+                console.log(`Removed stale localStorage entry for User ${uid}`);
+            }
+        });
+        
+        localStorage.setItem('sharedUserStatuses', JSON.stringify(storedUserStatuses));
+    } catch (error) {
+        console.warn("Failed to clean up localStorage:", error);
+    }
+    
+    // Update UI
+    updateUserList();
+    updateStats();
+    
+    console.log("=== SAME-BROWSER DUPLICATE CLEANUP COMPLETE ===");
     console.log("Remaining users:", Array.from(platformUsers.keys()));
 }
 
@@ -520,7 +594,25 @@ function addUserToPlatform(uid, status) {
     // Check if user already exists
     if (platformUsers.has(uid)) {
         console.log(`User ${uid} already exists, updating status to ${status}`);
-        setUserStatus(uid, status);
+        // Update the existing user's status directly without calling setUserStatus
+        const existingUser = platformUsers.get(uid);
+        existingUser.status = status;
+        existingUser.timestamp = Date.now();
+        
+        // Update waiting users set
+        if (status === "waiting") {
+            waitingUsers.add(uid);
+        } else {
+            waitingUsers.delete(uid);
+        }
+        
+        // Share user status with other users
+        shareUserStatus(uid, status, existingUser.conversationPartner).catch(error => {
+            console.error("Failed to share user status:", error);
+        });
+        
+        updateUserList();
+        updateStats();
         return;
     }
     

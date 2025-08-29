@@ -347,7 +347,7 @@ function initializeEventListeners() {
 
 }
 
-async function connectToPlatform() {
+async function connectToPlatform(retryCount = 0) {
     try {
         if (isConnected) {
             message.warning("Already connected to platform");
@@ -394,8 +394,13 @@ async function connectToPlatform() {
         // Set up event handlers
         setupClientEventHandlers();
 
-        // Join the platform channel
-        await client.join(options.appid, options.channel, options.token, options.uid);
+        // Join the platform channel with timeout
+        const joinPromise = client.join(options.appid, options.channel, options.token, options.uid);
+        const timeoutPromise = new Promise((_, reject) => {
+            setTimeout(() => reject(new Error("Connection timeout")), 15000); // 15 second timeout
+        });
+        
+        await Promise.race([joinPromise, timeoutPromise]);
         
         // Create and publish local audio track
         await createAndPublishAudioTrack();
@@ -463,6 +468,21 @@ async function connectToPlatform() {
             return;
         } else if (error.message.includes('token')) {
             message.error("Token error. Please configure your Agora credentials in the setup page.");
+        } else if (error.message.includes('WebSocket') || error.message.includes('connection') || error.message.includes('network')) {
+            console.log("Network error details:", error);
+            
+            // Retry connection for network errors (up to 3 times)
+            if (retryCount < 3) {
+                message.warning(`Connection failed. Retrying... (${retryCount + 1}/3)`);
+                setTimeout(() => {
+                    if (!isConnected) {
+                        connectToPlatform(retryCount + 1);
+                    }
+                }, 2000 * (retryCount + 1)); // Exponential backoff
+                return;
+            } else {
+                message.error("Network connection failed after 3 retries. Please check your internet connection and try again.");
+            }
         } else {
             message.error("Failed to connect: " + error.message);
         }
@@ -1079,6 +1099,18 @@ function handleConnectionStateChange(curState, prevState) {
         isConnected = false;
         updateUI();
         message.warning("Connection lost. Please reconnect.");
+    } else if (curState === "CONNECTING") {
+        console.log("Attempting to connect to Agora servers...");
+    } else if (curState === "CONNECTED") {
+        console.log("Successfully connected to Agora servers");
+    } else if (curState === "RECONNECTING") {
+        console.log("Reconnecting to Agora servers...");
+        message.info("Reconnecting to platform...");
+    } else if (curState === "ABORTED") {
+        console.log("Connection aborted");
+        isConnected = false;
+        updateUI();
+        message.error("Connection aborted. Please try again.");
     }
 }
 

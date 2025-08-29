@@ -419,6 +419,17 @@ async function connectToPlatform() {
             checkForConversationUpdates();
         }, 1000);
         
+        // Send a test message to verify messaging is working
+        setTimeout(async () => {
+            console.log("Sending test message to verify messaging");
+            await sendChannelMessage({
+                type: 'test',
+                uid: options.uid,
+                message: 'Test message from ' + options.uid,
+                timestamp: Date.now()
+            });
+        }, 2000);
+        
     } catch (error) {
         console.error("Connection error:", error);
         
@@ -1056,18 +1067,27 @@ function handleConnectionStateChange(curState, prevState) {
 }
 
 function handleChannelMessage(message) {
+    console.log("Raw channel message received:", message);
+    
     try {
         const data = JSON.parse(message.text);
-        console.log("Received channel message:", data);
+        console.log("Parsed channel message:", data);
+        console.log("Current user:", options.uid, "Message type:", data.type);
         
         switch (data.type) {
+            case 'test':
+                console.log("Received test message from User", data.uid, ":", data.message);
+                break;
             case 'conversation_start':
+                console.log("Handling conversation start message");
                 handleConversationStartMessage(data);
                 break;
             case 'conversation_end':
+                console.log("Handling conversation end message");
                 handleConversationEndMessage(data);
                 break;
             case 'user_status':
+                console.log("Handling user status message");
                 handleUserStatusMessage(data);
                 break;
             default:
@@ -1075,6 +1095,7 @@ function handleChannelMessage(message) {
         }
     } catch (error) {
         console.error("Error parsing channel message:", error);
+        console.error("Raw message text:", message.text);
     }
 }
 
@@ -1252,11 +1273,35 @@ async function sendChannelMessage(messageData) {
     try {
         if (client && isConnected) {
             const message = JSON.stringify(messageData);
-            await client.sendMessageToPeer(message);
-            console.log("Sent channel message:", messageData);
+            console.log("Sending channel message:", messageData);
+            console.log("Message JSON:", message);
+            console.log("Client state:", client.connectionState);
+            console.log("Is connected:", isConnected);
+            
+            // Try different methods for sending messages
+            try {
+                await client.sendMessageToAll(message);
+            } catch (sendError) {
+                console.log("sendMessageToAll failed, trying alternative method:", sendError);
+                // Alternative method - send to specific users
+                const remoteUsers = client.remoteUsers;
+                for (let remoteUser of remoteUsers) {
+                    try {
+                        await client.sendMessageToPeer(message, remoteUser.uid);
+                    } catch (peerError) {
+                        console.error("Failed to send to peer", remoteUser.uid, ":", peerError);
+                    }
+                }
+            }
+            console.log("Successfully sent channel message:", messageData);
+        } else {
+            console.error("Cannot send message - client not ready or not connected");
+            console.log("Client:", client);
+            console.log("Is connected:", isConnected);
         }
     } catch (error) {
         console.error("Failed to send channel message:", error);
+        console.error("Error details:", error.message);
     }
 }
 

@@ -1428,6 +1428,59 @@ function handleLocalStorageMessages() {
     }
 }
 
+// Handle messages from API
+async function handleApiMessages() {
+    try {
+        const apiUrl = getApiUrl();
+        const lastCheckTime = sessionStorage.getItem('lastApiCheckTime') || '0';
+        
+        const response = await fetch(`${apiUrl}/api/messages?uid=${options.uid}&since=${lastCheckTime}`);
+        
+        if (response.ok) {
+            const data = await response.json();
+            const currentTime = Date.now();
+            
+            for (let message of data.messages) {
+                // Skip our own messages
+                if (message.sender === options.uid) {
+                    continue;
+                }
+                
+                console.log("Processing API message:", message);
+                
+                // Process the message data
+                const messageData = message.data;
+                
+                switch (messageData.type) {
+                    case 'conversation_start':
+                        console.log("Handling conversation start message from API");
+                        handleConversationStartMessage(messageData);
+                        break;
+                    case 'conversation_end':
+                        console.log("Handling conversation end message from API");
+                        handleConversationEndMessage(messageData);
+                        break;
+                    case 'user_status':
+                        console.log("Handling user status message from API");
+                        handleUserStatusMessage(messageData);
+                        break;
+                    case 'force_conversation_check':
+                        console.log("Handling force conversation check message from API");
+                        handleForceConversationCheckMessage(messageData);
+                        break;
+                    default:
+                        console.log("Unknown message type from API:", messageData.type);
+                }
+            }
+            
+            // Update last check time
+            sessionStorage.setItem('lastApiCheckTime', currentTime.toString());
+        }
+    } catch (error) {
+        console.warn("API message check failed:", error);
+    }
+}
+
 function checkForConversationWithUser(targetUid) {
     console.log(`Checking for conversation with User ${targetUid}`);
     
@@ -1812,13 +1865,42 @@ function generateUniqueUID() {
     return timestamp + random;
 }
 
-// Cross-device communication using multiple approaches for reliability
-// This combines user status updates with localStorage for same-browser and aggressive polling
+// Cross-device communication using API for reliable messaging
+// This uses a server API for cross-device communication with localStorage backup
 async function sendChannelMessage(messageData) {
     try {
-        console.log("Sending message via multi-approach system:", messageData);
+        console.log("Sending message via API system:", messageData);
         
-        // Approach 1: User status system (works across devices)
+        // Approach 1: API-based messaging (works across all devices)
+        if (messageData.target) {
+            try {
+                const apiUrl = getApiUrl();
+                const response = await fetch(`${apiUrl}/api/messages`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        type: messageData.type,
+                        sender: options.uid,
+                        target: messageData.target,
+                        data: messageData,
+                        timestamp: Date.now()
+                    })
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    console.log("Message sent via API successfully:", result);
+                } else {
+                    console.warn("API message failed, falling back to user status");
+                }
+            } catch (apiError) {
+                console.warn("API unavailable, falling back to user status:", apiError);
+            }
+        }
+        
+        // Approach 2: User status system (fallback)
         if (messageData.type === 'conversation_start') {
             const targetUid = messageData.target;
             await setUserStatus(options.uid, "in-conversation");
@@ -1839,7 +1921,7 @@ async function sendChannelMessage(messageData) {
             console.log("User status message sent via status system");
         }
         
-        // Approach 2: localStorage for same-browser tabs (backup)
+        // Approach 3: localStorage for same-browser tabs (backup)
         try {
             const messageId = 'msg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
             const messageWithId = {
@@ -1872,11 +1954,25 @@ async function sendChannelMessage(messageData) {
             console.warn("localStorage backup failed:", localStorageError);
         }
         
-        console.log("Successfully sent message via multi-approach system:", messageData);
+        console.log("Successfully sent message via API system:", messageData);
     } catch (error) {
         console.error("Failed to send message:", error);
         console.error("Error details:", error.message);
     }
+}
+
+// Get API URL based on environment
+function getApiUrl() {
+    // For Vercel deployment
+    if (window.location.hostname.includes('vercel.app')) {
+        return `https://${window.location.hostname}`;
+    }
+    // For local development
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+        return 'http://localhost:3000';
+    }
+    // For other deployments, use the current origin
+    return window.location.origin;
 }
 
 // Conversation coordination using cross-device messaging
@@ -2308,6 +2404,7 @@ setInterval(() => {
         checkForConversationUpdates();
         checkForUserStatusUpdates();
         handleLocalStorageMessages(); // Check for new messages
+        handleApiMessages(); // Check for API messages
         
         // Aggressive cross-device conversation detection
         for (let [uid, user] of platformUsers.entries()) {

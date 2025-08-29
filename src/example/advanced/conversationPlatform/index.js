@@ -31,6 +31,10 @@ let recordingStream = null;
 let localMediaRecorder = null;
 let localRecordedChunks = [];
 
+// Remote user recording
+let remoteMediaRecorder = null;
+let remoteRecordedChunks = [];
+
 // Options from local storage
 let options = getOptionsFromLocal();
 
@@ -905,9 +909,12 @@ function startConversationRecording(conversationId) {
             console.log("Started recording local user audio:", options.uid);
         }
         
-
+        // Start recording remote user's audio if available
+        if (remoteAudioTrack) {
+            startRemoteAudioRecording(conversationId);
+        }
         
-        console.log("Started local user recording for conversation:", conversationId);
+        console.log("Started recording for conversation:", conversationId);
         
     } catch (error) {
         console.error("Error starting recording:", error);
@@ -915,11 +922,56 @@ function startConversationRecording(conversationId) {
     }
 }
 
+function startRemoteAudioRecording(conversationId) {
+    try {
+        if (remoteAudioTrack) {
+            const remoteStream = new MediaStream();
+            remoteStream.addTrack(remoteAudioTrack.getMediaStreamTrack());
+            
+            remoteMediaRecorder = new MediaRecorder(remoteStream, {
+                mimeType: 'audio/webm;codecs=opus'
+            });
+            
+            remoteRecordedChunks = [];
+            
+            remoteMediaRecorder.ondataavailable = (event) => {
+                if (event.data.size > 0) {
+                    remoteRecordedChunks.push(event.data);
+                }
+            };
+            
+            remoteMediaRecorder.onstop = () => {
+                const blob = new Blob(remoteRecordedChunks, { type: 'audio/webm' });
+                const url = URL.createObjectURL(blob);
+                const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                const filename = `user-${currentConversationPartner}-conversation-${conversationId}-${timestamp}.webm`;
+                
+                // Download recording locally
+                autoDownloadRecording(filename, url);
+                
+                // Clean up
+                remoteRecordedChunks = [];
+            };
+            
+            remoteMediaRecorder.start();
+            console.log("Started recording remote user audio:", currentConversationPartner);
+        }
+    } catch (error) {
+        console.error("Error starting remote audio recording:", error);
+    }
+}
+
 function stopConversationRecording() {
-    // Stop local user recording only
+    // Stop local user recording
     if (localMediaRecorder && localMediaRecorder.state !== 'inactive') {
         localMediaRecorder.stop();
         console.log("Stopped recording local user audio");
+    }
+    
+    // Stop remote user recording
+    if (remoteMediaRecorder && remoteMediaRecorder.state !== 'inactive') {
+        remoteMediaRecorder.stop();
+        console.log("Stopped recording remote user audio");
     }
     
     if (audioContext) {
@@ -1055,11 +1107,22 @@ async function handleUserPublished(user, mediaType) {
         remoteAudioTrack = user.audioTrack;
         remoteAudioTrack.play();
         console.log("Subscribed to remote audio track");
+        
+        // If we're in a conversation, start recording the remote user's audio
+        if (isInConversation && currentConversationId) {
+            startRemoteAudioRecording(currentConversationId);
+        }
     }
 }
 
 function handleUserUnpublished(user, mediaType) {
     if (mediaType === "audio") {
+        // Stop recording remote user's audio if we were recording it
+        if (remoteMediaRecorder && remoteMediaRecorder.state !== 'inactive') {
+            remoteMediaRecorder.stop();
+            console.log("Stopped recording remote user audio due to unpublish");
+        }
+        
         remoteAudioTrack = null;
         console.log("Remote audio track unpublished");
     }

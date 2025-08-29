@@ -1,11 +1,14 @@
-// Production configuration for conversation platform
-const PRODUCTION_CONFIG = {
+// Production Configuration for conversation recording server
+// Update this file with your Railway backend URL
+
+const CONFIG = {
     // Recording server settings
     RECORDING_SERVER: {
-        // Update this to your actual production server URL
-        UPLOAD_URL: 'https://your-backend-domain.com/api/recordings/upload',
+        // TODO: Replace with your Railway URL
+        // Example: https://conversation-backend-production-xxxx.up.railway.app
+        UPLOAD_URL: 'https://YOUR_RAILWAY_URL.railway.app/api/recordings/upload',
         
-        // Enable server uploads in production
+        // Enable server uploads (recommended for production)
         ENABLE_SERVER_UPLOADS: true,
         
         // Fallback to local download if server upload fails
@@ -42,25 +45,19 @@ const PRODUCTION_CONFIG = {
         
         // Maximum filename length
         MAX_FILENAME_LENGTH: 255
-    },
-    
-    // Production settings
-    PRODUCTION: {
-        // Enable production mode
-        ENABLED: true,
-        
-        // Logging level
-        LOG_LEVEL: 'error', // 'debug', 'info', 'warn', 'error'
-        
-        // Analytics (optional)
-        ENABLE_ANALYTICS: false
     }
 };
 
 // Export for use in other files
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = PRODUCTION_CONFIG;
+    module.exports = CONFIG;
 } else {
     // For browser usage
-    window.PRODUCTION_CONFIG = PRODUCTION_CONFIG;
+    window.CONFIG = CONFIG;
 }
+
+// Instructions for updating this file:
+// 1. Replace 'YOUR_RAILWAY_URL' with your actual Railway URL
+// 2. The URL should look like: https://conversation-backend-production-xxxx.up.railway.app
+// 3. Make sure to include the full path: /api/recordings/upload
+// 4. Test the URL by visiting it in your browser - you should see a JSON response

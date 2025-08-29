@@ -874,6 +874,31 @@ function startConversation(user1Uid, user2Uid) {
     setTimeout(() => {
         forceConversationCheckForUser(user2Uid);
     }, 1000);
+    
+    // Send immediate conversation start message to both users
+    setTimeout(() => {
+        // Send to User 2
+        sendChannelMessage({
+            type: 'conversation_start',
+            target: user2Uid,
+            conversationId: conversationId,
+            user1: user1Uid,
+            user2: user2Uid,
+            startTime: startTime,
+            initiator: options.uid
+        });
+        
+        // Also send to User 1 (for immediate UI update)
+        sendChannelMessage({
+            type: 'conversation_start',
+            target: user1Uid,
+            conversationId: conversationId,
+            user1: user1Uid,
+            user2: user2Uid,
+            startTime: startTime,
+            initiator: options.uid
+        });
+    }, 200);
 }
 
 async function setUserStatus(uid, status) {
@@ -958,6 +983,25 @@ function endConversation() {
         notifyConversationEnded(currentConversationPartner, options.uid).catch(error => {
             console.error("Failed to notify conversation end:", error);
         });
+        
+        // Send immediate conversation end message to both users
+        setTimeout(() => {
+            // Send to the other user
+            sendChannelMessage({
+                type: 'conversation_end',
+                target: currentConversationPartner,
+                endedBy: options.uid,
+                timestamp: Date.now()
+            });
+            
+            // Also send to current user (for immediate UI update)
+            sendChannelMessage({
+                type: 'conversation_end',
+                target: options.uid,
+                endedBy: options.uid,
+                timestamp: Date.now()
+            });
+        }, 100);
     }
     
     // Reset conversation state
@@ -1726,6 +1770,25 @@ function handleConversationStartMessage(data) {
             
             message.success(`Conversation started with User ${partnerUid}!`);
         }
+    } else {
+        // Update UI for other users' conversations (so we can see their status)
+        const user1Obj = platformUsers.get(user1);
+        const user2Obj = platformUsers.get(user2);
+        
+        if (user1Obj) {
+            user1Obj.status = "in-conversation";
+            user1Obj.conversationPartner = user2;
+            user1Obj.timestamp = Date.now();
+        }
+        
+        if (user2Obj) {
+            user2Obj.status = "in-conversation";
+            user2Obj.conversationPartner = user1;
+            user2Obj.timestamp = Date.now();
+        }
+        
+        updateUserList();
+        updateStats();
     }
 }
 
@@ -1780,8 +1843,27 @@ function handleConversationEndMessage(data) {
             updateStats();
             updateUserList();
             
-            message.info("Other user ended the conversation.");
+            message.info("Conversation ended by other user.");
         }
+    } else {
+        // Update UI for other users' conversation endings (so we can see their status)
+        const user1Obj = platformUsers.get(user1);
+        const user2Obj = platformUsers.get(user2);
+        
+        if (user1Obj) {
+            user1Obj.status = "available";
+            user1Obj.conversationPartner = null;
+            user1Obj.timestamp = Date.now();
+        }
+        
+        if (user2Obj) {
+            user2Obj.status = "available";
+            user2Obj.conversationPartner = null;
+            user2Obj.timestamp = Date.now();
+        }
+        
+        updateUserList();
+        updateStats();
     }
 }
 
